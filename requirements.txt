@@ -1,0 +1,6 @@
+exif
+tzlocal
+pandas
+numpy
+argparse
+tkinterdnd2
