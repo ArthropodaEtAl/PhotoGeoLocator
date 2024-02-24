@@ -30,7 +30,7 @@ def extract_points(filepath) -> pd.DataFrame:
     points = ET.parse(filepath)
     root = points.getroot()
 
-    header = ["Time", "Datetime", "Latitude", "Longitude"]
+    header = ["Time", "Datetime", "Timestamp", "Latitude", "Longitude"]
     point_list = []
 
     tz = get_timezone()
@@ -39,12 +39,12 @@ def extract_points(filepath) -> pd.DataFrame:
     for elm in root.findall(f".//{namespace}trkpt"):
         time = elm.findall(f".//{namespace}time")[0].text
         dt = datetime.datetime.strptime(time, "%Y-%m-%dT%H:%M:%S%z").astimezone(tz).replace(tzinfo=None)
+        ts = dt.timestamp()
         lon = float(elm.get("lon"))
         lat = float(elm.get("lat"))
-        point_list.append([time, dt, lat, lon])
+        point_list.append([time, dt, ts, lat, lon])
 
     points_df = pd.DataFrame(point_list, columns=header)
-    points_df["Timestamp"] = points_df["Datetime"].apply(lambda dt: dt.timestamp())
     return points_df
 
 
@@ -103,7 +103,7 @@ def get_photo_datetime(photo: Image, timezone: ZoneInfo = None) -> datetime.date
         else:
             return dt
     except Exception as e:
-        print(e, photo)
+        print("get_photo_datetime", e, photo)
 
 
 def tag_photos(
@@ -111,12 +111,12 @@ def tag_photos(
     photo_paths: list[str],
     photo_date_offset: pd.Timedelta = None,
     valid_filetypes=[".jpg", ".jpeg"],
+    overwrite=False,  # TODO add checkbox to GUI
 ):
     """
     Adds location data to photos by interpolating timestamps from gps data
     """
 
-    tz = get_timezone()
     mindt = points_df["Datetime"].min()
     maxdt = points_df["Datetime"].max()
 
@@ -126,26 +126,26 @@ def tag_photos(
         with open(photo_path, "rb") as image_file:
             photo = Image(image_file)
 
-            # Check if file has a time to interpolate from
-            if not photo_has_datetime(photo):
-                print(f"{photo_path} : skipping, no time available")
-                continue
+        # Check if file has a time to interpolate from
+        if not photo_has_datetime(photo):
+            print(f"{photo_path} : skipping, no time available")
+            continue
 
-            # Check if lat/long already exist on file. If so, skip
-            if photo_has_lat_long(photo):
-                print(f"{photo_path} : skipping, location already exists")
-                continue
+        # Check if lat/long already exist on file. If so, skip
+        if photo_has_lat_long(photo) and not overwrite:
+            print(f"{photo_path} : skipping, location already exists")
+            continue
 
-            # Retrieve datetime from photo, check if inside bounds
-            photodt = get_photo_datetime(photo, tz).replace(tzinfo=None) + photo_date_offset
-            photots = photodt.timestamp()
+        # Retrieve datetime from photo, check if inside bounds
+        photodt = get_photo_datetime(photo) + photo_date_offset
+        photots = photodt.timestamp()
 
-            if photodt < mindt or photodt > maxdt:
-                photo_t = photodt.isoformat()
-                min_t = mindt.isoformat()
-                max_t = maxdt.isoformat()
-                print(f"{photo_path} : skipping, time {photo_t} outside of bounds {min_t} - {max_t}")
-                continue
+        if photodt < mindt or photodt > maxdt:
+            photo_t = photodt.isoformat()
+            min_t = mindt.isoformat()
+            max_t = maxdt.isoformat()
+            print(f"{photo_path} : skipping, time {photo_t} outside of bounds {min_t} - {max_t}")
+            continue
 
         print(f"{photo_path} : adding location")
         photolat = np.interp(photots, points_df["Timestamp"], points_df["Latitude"])
@@ -153,11 +153,12 @@ def tag_photos(
 
         # Write new location data to image
         with open(photo_path, "wb") as image_file:
-            try:
-                del photo.gps_latitude
-                del photo.gps_longitude
-            except Exception as e:
-                print("Could not delete location data on photo", photo_path, e)
+            if overwrite and (hasattr(photo, "gps_latitude") or hasattr(photo, "gps_longitude")):
+                try:
+                    del photo.gps_latitude
+                    del photo.gps_longitude
+                except Exception as e:
+                    print(e, "Could not delete location data on photo", photo_path, e)
 
             lat_d, lat_m, lat_s, lat_hemi = deg_to_dms(photolat)
             dms_lat = (lat_d, lat_m, lat_s)
@@ -254,7 +255,6 @@ def DO_GUI():
             folder_details = [""]
             gpx_details = [""]
             both_details = ""
-            timezone = get_timezone()
             same_day = False
             min_photo_dt = None
             max_photo_dt = None
@@ -265,9 +265,7 @@ def DO_GUI():
             loaded_gpx = len(self.points_df) > 0
 
             if loaded_files:
-                image_times = [
-                    get_photo_datetime(i, timezone).replace(tzinfo=None) + self.offset_mins for i in self.images
-                ]
+                image_times = [get_photo_datetime(i) + self.offset_mins for i in self.images]
                 min_photo_dt = min(image_times)
                 max_photo_dt = max(image_times)
                 if min_photo_dt.date() == max_photo_dt.date():
