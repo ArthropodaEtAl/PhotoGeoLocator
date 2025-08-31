@@ -35,10 +35,14 @@ def extract_points(filepath) -> pd.DataFrame:
 
     tz = get_timezone()
 
-    namespace = "{http://www.topografix.com/GPX/1/1}"
+    namespace = "{http://www.topografix.com/GPX/1/0}"
     for elm in root.findall(f".//{namespace}trkpt"):
         time = elm.findall(f".//{namespace}time")[0].text
-        dt = datetime.datetime.strptime(time, "%Y-%m-%dT%H:%M:%S%z").astimezone(tz).replace(tzinfo=None)
+        dt = (
+            datetime.datetime.strptime(time, "%Y-%m-%dT%H:%M:%S.%f%z")
+            .astimezone(tz)
+            .replace(tzinfo=None)
+        )
         ts = dt.timestamp()
         lon = float(elm.get("lon"))
         lat = float(elm.get("lat"))
