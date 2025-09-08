@@ -5,19 +5,21 @@ This code will read your local time zone from the computer and assign it to the 
 The code will skip photos outside of the GPX data time window, and skip photos that already have location data! This is really helpful if your store all of your photos in one folder.
 
 Follow these instructions:
-Get your GPX file from Strava or other website
+1. Get your GPX file from Strava or other website
 
-Use the requirements.txt to install the required libraries.
+2. [Optional] create a python virtual environment with `python -m venv .venv` and activate it with `.venv/Scripts/activate` or `.venv/bin/activate`
 
-Double click on the .bat file. 
+3. Use the requirements.txt to install the required libraries.
 
-Input the file locations for the gpx data 
+4. Double click on the .bat or .sh file.
 
-If your camera clock is off compared to your computer time. (This can also be another way to manually offset the photo timezone with your computer clock.)
+5. Input the file locations for the gpx data 
 
-Add locations
+6. If your camera clock is off compared to your computer time. (This can also be another way to manually offset the photo timezone with your computer clock.)
 
-Profit by having located your bugs
+7. Add locations
+
+8. Profit by having located your bugs
 
 Demonstration: https://youtu.be/SuSal7x5lFQ
 
