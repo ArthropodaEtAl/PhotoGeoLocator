@@ -2,6 +2,7 @@ import os
 import datetime
 from zoneinfo import ZoneInfo
 import xml.etree.ElementTree as ET
+import re
 
 from exif import Image
 import tzlocal
@@ -35,10 +36,31 @@ def extract_points(filepath) -> pd.DataFrame:
 
     tz = get_timezone()
 
-    namespace = "{http://www.topografix.com/GPX/1/1}"
+    # detect namespace to use
+    namespace = re.findall(r"(\{.*\})", root.tag)[0]
+
+    def timestring_to_datetime(date_string: str) -> datetime:
+        """Convert a datetime string to a datetime object.
+
+        Modified from: https://stackoverflow.com/a/35216283/8305404
+        """
+        # full timestamp with milliseconds
+        if re.match(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z", date_string):
+            return datetime.datetime.strptime(date_string, "%Y-%m-%dT%H:%M:%S.%fZ")
+
+        # timestamp missing milliseconds
+        if re.match(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", date_string):
+            return datetime.datetime.strptime(date_string, "%Y-%m-%dT%H:%M:%SZ")
+        
+        raise ValueError(f"Invalid date string: {date_string}")
+    
     for elm in root.findall(f".//{namespace}trkpt"):
         time = elm.findall(f".//{namespace}time")[0].text
-        dt = datetime.datetime.strptime(time, "%Y-%m-%dT%H:%M:%S%z").astimezone(tz).replace(tzinfo=None)
+        dt = (
+            timestring_to_datetime(time)
+            .astimezone(tz)
+            .replace(tzinfo=None)
+        )
         ts = dt.timestamp()
         lon = float(elm.get("lon"))
         lat = float(elm.get("lat"))
