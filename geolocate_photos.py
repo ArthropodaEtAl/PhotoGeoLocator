@@ -24,6 +24,35 @@ parser.add_argument(
 )
 
 
+def timestring_to_datetime(time_str: str, tz: ZoneInfo = None) -> datetime.datetime:
+    """Convert a datetime string to a naive datetime object in the target timezone.
+
+    Modified from: https://stackoverflow.com/a/35216283/8305404
+    """
+    # ensure we have a target timezone (default to UTC)
+    if tz is None:
+        tz = ZoneInfo("UTC")
+
+    dt_utc = None
+
+    # full timestamp with milliseconds (UTC)
+    if re.match(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z", time_str):
+        dt_utc = datetime.datetime.strptime(time_str, "%Y-%m-%dT%H:%M:%S.%fZ").replace(
+            tzinfo=datetime.timezone.utc
+        )
+
+    # timestamp missing milliseconds (UTC)
+    if re.match(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", time_str):
+        dt_utc = datetime.datetime.strptime(time_str, "%Y-%m-%dT%H:%M:%SZ").replace(
+            tzinfo=datetime.timezone.utc
+        )
+
+    if dt_utc is None:
+        raise ValueError(f"Invalid date string: {time_str}")
+    else:
+        return dt_utc.astimezone(tz).replace(tzinfo=None)
+
+
 def extract_points(filepath) -> pd.DataFrame:
     """
     Extracts gps coordinates and timestamps from a .gpx file to a dataframe
@@ -39,28 +68,10 @@ def extract_points(filepath) -> pd.DataFrame:
     # detect namespace to use
     namespace = re.findall(r"(\{.*\})", root.tag)[0]
 
-    def timestring_to_datetime(date_string: str) -> datetime:
-        """Convert a datetime string to a datetime object.
-
-        Modified from: https://stackoverflow.com/a/35216283/8305404
-        """
-        # full timestamp with milliseconds
-        if re.match(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z", date_string):
-            return datetime.datetime.strptime(date_string, "%Y-%m-%dT%H:%M:%S.%fZ")
-
-        # timestamp missing milliseconds
-        if re.match(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", date_string):
-            return datetime.datetime.strptime(date_string, "%Y-%m-%dT%H:%M:%SZ")
-        
-        raise ValueError(f"Invalid date string: {date_string}")
-    
     for elm in root.findall(f".//{namespace}trkpt"):
         time = elm.findall(f".//{namespace}time")[0].text
-        dt = (
-            timestring_to_datetime(time)
-            .astimezone(tz)
-            .replace(tzinfo=None)
-        )
+        # timestring_to_datetime returns a naive datetime in the target timezone
+        dt = timestring_to_datetime(time, tz)
         ts = dt.timestamp()
         lon = float(elm.get("lon"))
         lat = float(elm.get("lat"))
