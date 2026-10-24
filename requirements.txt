@@ -4,3 +4,4 @@ pandas
 numpy
 argparse
 tkinterdnd2
+piexif

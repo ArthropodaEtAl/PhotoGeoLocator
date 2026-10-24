@@ -3,8 +3,10 @@ import datetime
 from zoneinfo import ZoneInfo
 import xml.etree.ElementTree as ET
 import re
+import shutil
 
 from exif import Image
+import piexif
 import tzlocal
 import pandas as pd
 import numpy as np
@@ -92,7 +94,7 @@ def deg_to_dms(deg):
     if deg < 0:
         degs = -degs
     degs, mins = int(degs), int(mins)
-    hemi = 1 if degs > 0 else -1
+    hemi = 1 if deg >= 0 else -1
     degs *= hemi
 
     return degs, mins, secs, hemi
@@ -137,6 +139,40 @@ def get_photo_datetime(photo: Image, timezone: ZoneInfo = None) -> datetime.date
             return dt
     except Exception as e:
         print("get_photo_datetime", e, photo)
+
+
+def to_rational(value: float, denominator: int = 10000) -> tuple[int, int]:
+    return (int(round(value * denominator)), denominator)
+
+
+def write_gps(photo_path: str, lat: float, lon: float):
+    """Write GPS tags with piexif, which (unlike exif) can add a GPS IFD to
+    files that lack one, e.g. darktable exports with no thumbnail IFD.
+
+    Writes to a temp file and replaces the original only on success, so a
+    failure never truncates the photo.
+    """
+    exif_dict = piexif.load(photo_path)
+
+    lat_d, lat_m, lat_s, lat_hemi = deg_to_dms(lat)
+    lon_d, lon_m, lon_s, lon_hemi = deg_to_dms(lon)
+    exif_dict["GPS"] = {
+        piexif.GPSIFD.GPSVersionID: (2, 3, 0, 0),
+        piexif.GPSIFD.GPSLatitudeRef: b"N" if lat_hemi == 1 else b"S",
+        piexif.GPSIFD.GPSLatitude: ((int(lat_d), 1), (int(lat_m), 1), to_rational(lat_s)),
+        piexif.GPSIFD.GPSLongitudeRef: b"E" if lon_hemi == 1 else b"W",
+        piexif.GPSIFD.GPSLongitude: ((int(lon_d), 1), (int(lon_m), 1), to_rational(lon_s)),
+    }
+    exif_bytes = piexif.dump(exif_dict)
+
+    tmp_path = photo_path + ".tmp"
+    shutil.copy2(photo_path, tmp_path)
+    try:
+        piexif.insert(exif_bytes, tmp_path)
+        os.replace(tmp_path, photo_path)
+    finally:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
 
 
 def tag_photos(
@@ -185,25 +221,10 @@ def tag_photos(
         photolon = np.interp(photots, points_df["Timestamp"], points_df["Longitude"])
 
         # Write new location data to image
-        with open(photo_path, "wb") as image_file:
-            if overwrite and (hasattr(photo, "gps_latitude") or hasattr(photo, "gps_longitude")):
-                try:
-                    del photo.gps_latitude
-                    del photo.gps_longitude
-                except Exception as e:
-                    print(e, "Could not delete location data on photo", photo_path, e)
-
-            lat_d, lat_m, lat_s, lat_hemi = deg_to_dms(photolat)
-            dms_lat = (lat_d, lat_m, lat_s)
-            photo.gps_latitude_ref = "N" if lat_hemi == 1 else "S"
-            photo.gps_latitude = dms_lat
-
-            lon_d, lon_m, lon_s, lon_hemi = deg_to_dms(photolon)
-            dms_lon = (lon_d, lon_m, lon_s)
-            photo.gps_longitude_ref = "E" if lon_hemi == 1 else "W"
-            photo.gps_longitude = dms_lon
-
-            image_file.write(photo.get_file())
+        try:
+            write_gps(photo_path, photolat, photolon)
+        except Exception as e:
+            print(f"{photo_path} : failed to write location, file left unchanged ({e})")
 
 
 def DO_GUI():
